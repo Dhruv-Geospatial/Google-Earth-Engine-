@@ -1,0 +1,189 @@
+// global forest cover dataset (Hansen Global Forest Change v1.11)
+var forestCover = ee.Image('UMD/hansen/global_forest_change_2023_v1_11')
+                    .select(['treecover2000']);
+
+// global surface water dataset (JRC Global Surface Water)
+var waterBodies = ee.Image('JRC/GSW1_3/GlobalSurfaceWater').select('occurrence');
+
+// global soil dataset (SoilGrids)
+var soilType = ee.Image('OpenLandMap/SOL/SOL_TEXTURE-CLASS_USDA-TT_M/v02')
+                    .select('b0');
+
+// forest cover
+Map.addLayer(forestCover, {min: 0, max: 100, palette: ['white', 'green']}, 'Forest Cover');
+
+// water bodies
+Map.addLayer(waterBodies, {min: 0, max: 100, palette: ['white', 'blue']}, 'Water Bodies');
+
+// soil types 
+Map.addLayer(soilType, {min: 1, max: 12, palette: ['red', 'yellow', 'brown', 'green', 'black']}, 'Soil Types');
+
+//Country boundries 
+var countries = ee.FeatureCollection('USDOS/LSIB_SIMPLE/2017');
+Map.addLayer(countries.style({color: 'black', fillColor: '00000000'}), {}, 'Country Boundaries');
+
+Map.setCenter(0, 0, 2);
+
+var title = ui.Label('Global Natural Resources (2020)', {
+  position: 'top-center',
+  fontWeight: 'bold',
+  fontSize: '20px',
+  margin: '10px'
+});
+Map.add(title);
+
+// Add a legend
+var legend = ui.Panel({
+  style: {
+    position: 'bottom-left',
+    padding: '8px 15px'
+  }
+});
+
+var legendTitle = ui.Label({
+  value: 'Natural Resources Legend',
+  style: {
+    fontWeight: 'bold',
+    fontSize: '16px',
+    margin: '0 0 4px 0',
+    padding: '0'
+  }
+});
+
+legend.add(legendTitle);
+
+var makeRow = function(color, name) {
+  var colorBox = ui.Label({
+    style: {
+      backgroundColor: color,
+      padding: '8px',
+      margin: '0 0 4px 0'
+    }
+  });
+
+  var description = ui.Label({
+    value: name,
+    style: {margin: '0 0 4px 6px'}
+  });
+
+  return ui.Panel({
+    widgets: [colorBox, description],
+    layout: ui.Panel.Layout.Flow('horizontal')
+  });
+};
+
+// forest cover legend
+legend.add(makeRow('green', 'Forest Cover'));
+
+// water bodies legend
+legend.add(makeRow('blue', 'Water Bodies'));
+
+// soil types legend
+legend.add(makeRow('red', 'Soil Types - Sandy'));
+legend.add(makeRow('yellow', 'Soil Types - Silty'));
+legend.add(makeRow('brown', 'Soil Types - Clayey'));
+legend.add(makeRow('green', 'Soil Types - Peaty'));
+legend.add(makeRow('black', 'Soil Types - Loamy'));
+
+Map.add(legend);
+
+// Function to display resource information when a country is clicked
+var infoPanel;
+var chartPanel;
+
+var onClick = function(coords) {
+  var point = ee.Geometry.Point([coords.lon, coords.lat]);
+
+  // Filter the country boundaries by the clicked point
+  var country = countries.filterBounds(point).first();
+
+  if (country) {
+    var countryName = country.get('country_na').getInfo();
+
+    // Calculate resource information
+    var forestArea = forestCover.clip(country).reduceRegion({
+      reducer: ee.Reducer.sum(),
+      geometry: country.geometry(),
+      scale: 1000,
+      maxPixels: 1e9
+    }).get('treecover2000').getInfo();
+
+    var waterArea = waterBodies.reduceRegion({
+      reducer: ee.Reducer.sum(),
+      geometry: country.geometry(),
+      scale: 1000,
+      maxPixels: 1e9
+    }).get('occurrence').getInfo();
+
+    var soilTexture = soilType.reduceRegion({
+      reducer: ee.Reducer.mode(),
+      geometry: country.geometry(),
+      scale: 1000,
+      maxPixels: 1e9
+    }).get('b0').getInfo();
+
+    // Update the info panel with the resource information
+    if (infoPanel) {
+      Map.remove(infoPanel);
+    }
+
+    infoPanel = ui.Panel({
+      style: {
+        position: 'bottom-right',
+        padding: '8px',
+        backgroundColor: 'white'
+      }
+    });
+
+    var infoLabel = ui.Label('Natural Resources in ' + countryName, {
+      fontWeight: 'bold',
+      fontSize: '14px',
+      margin: '0 0 4px 0',
+      padding: '0'
+    });
+
+    infoPanel.add(infoLabel);
+
+    var forestLabel = ui.Label('Forest Area: ' + (forestArea / 1e6).toFixed(2) + ' km²');
+    var waterLabel = ui.Label('Water Area: ' + (waterArea / 1e6).toFixed(2) + ' km²');
+    var soilLabel = ui.Label('Dominant Soil Type: ' + soilTexture);
+
+    infoPanel.add(forestLabel);
+    infoPanel.add(waterLabel);
+    infoPanel.add(soilLabel);
+
+    Map.add(infoPanel);
+
+    // Create and display the resource chart
+    if (chartPanel) {
+      Map.remove(chartPanel);
+    }
+
+    var chart = ui.Chart.array.values({
+      array: ee.Array([forestArea, waterArea, soilTexture]),
+      axis: 0,
+      xLabels: ['Forest Area', 'Water Area', 'Soil Type']
+    }).setOptions({
+      title: 'Natural Resources in ' + countryName,
+      hAxis: {title: 'Resource'},
+      vAxis: {title: 'Value'},
+      legend: {position: 'none'}
+    });
+
+    chartPanel = ui.Panel({
+      widgets: [chart],
+      style: {
+        position: 'bottom-right',
+        padding: '8px',
+        backgroundColor: 'white'
+      }
+    });
+
+    Map.add(chartPanel);
+  } else {
+    print('No country found at the clicked location');
+  }
+};
+
+// click event handler
+Map.onClick(onClick);
