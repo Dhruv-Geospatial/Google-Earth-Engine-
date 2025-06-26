@@ -1,2 +1,2 @@
 # Google-Earth-Engine- 	
-[link](https://meet.google.com/landing)
+[link](https://ee-dhruvpatidar07.projects.earthengine.app/view/natural-resources-2020)
